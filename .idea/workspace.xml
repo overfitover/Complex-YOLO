@@ -1,29 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="7b595c5c-a136-45b4-b2ba-10fe36327d42" name="Default" comment="">
-      <change beforePath="" afterPath="$PROJECT_DIR$/config.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/data_aug.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/draw_middle_layer.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/eval.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/image_transform.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_aug.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_set/__init__.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_set/kitti_load.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_set/kitti_object.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_set/kitti_util.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_set/prepare_data.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/kitti_set/voxel_utils.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/test1.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/tools.py" />
-      <change beforePath="" afterPath="$PROJECT_DIR$/train.py" />
-      <change beforePath="$PROJECT_DIR$/README.md" afterPath="$PROJECT_DIR$/README.md" />
-      <change beforePath="$PROJECT_DIR$/complexYOLO.py" afterPath="$PROJECT_DIR$/complexYOLO.py" />
-      <change beforePath="$PROJECT_DIR$/kitti.py" afterPath="$PROJECT_DIR$/kitti.py" />
-      <change beforePath="$PROJECT_DIR$/main.py" afterPath="$PROJECT_DIR$/main.py" />
-      <change beforePath="$PROJECT_DIR$/region_loss.py" afterPath="$PROJECT_DIR$/region_loss.py" />
-      <change beforePath="$PROJECT_DIR$/utils.py" afterPath="$PROJECT_DIR$/utils.py" />
-    </list>
+    <list default="true" id="7b595c5c-a136-45b4-b2ba-10fe36327d42" name="Default" comment="" />
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -318,8 +296,8 @@
       <window_info id="Event Log" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="7" side_tool="true" content_ui="tabs" />
       <window_info id="Version Control" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="11" side_tool="false" content_ui="tabs" />
       <window_info id="Python Console" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="8" side_tool="false" content_ui="tabs" />
-      <window_info id="Run" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.324295" sideWeight="0.5" order="2" side_tool="false" content_ui="tabs" />
-      <window_info id="Terminal" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.329718" sideWeight="0.5" order="9" side_tool="false" content_ui="tabs" />
+      <window_info id="Run" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.324295" sideWeight="0.5" order="2" side_tool="false" content_ui="tabs" />
+      <window_info id="Terminal" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.329718" sideWeight="0.5" order="9" side_tool="false" content_ui="tabs" />
       <window_info id="Project" active="true" anchor="left" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="true" show_stripe_button="true" weight="0.14404432" sideWeight="0.5" order="0" side_tool="false" content_ui="combo" />
       <window_info id="Docker" active="false" anchor="bottom" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="false" weight="0.33" sideWeight="0.5" order="10" side_tool="false" content_ui="tabs" />
       <window_info id="Database" active="false" anchor="right" auto_hide="false" internal_type="DOCKED" type="DOCKED" visible="false" show_stripe_button="true" weight="0.33" sideWeight="0.5" order="3" side_tool="false" content_ui="tabs" />

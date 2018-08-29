@@ -22,8 +22,11 @@ Velodyne point clouds (29 GB)
 # Train
 
 python3 main.py
+
 or
+
 python train.py
+
 train.py 对比了测试集和训练集在训练过程中的loss变化情况, 为了观察是否过拟合.
 
 
@@ -33,6 +36,7 @@ train.py 对比了测试集和训练集在训练过程中的loss变化情况, �
 todo
 
 1.训练的结果在训练集和测试集上表现的差异很大. 现在不确定原因.
+
 2.我想增加显示中间层特征的方案
 
 
