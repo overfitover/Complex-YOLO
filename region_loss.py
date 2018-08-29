@@ -4,117 +4,129 @@ import math
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-
+from complexYOLO import ComplexYOLO
 import numpy as np
-
 from utils import *
 
-
-def build_targets(pred_boxes, target, anchors, num_anchors, num_classes, nH, nW, noobject_scale, object_scale, sil_thresh):
-    nB = target.size(0)
-    nTrueBox = target.data.size(1)   #50
-    nA = num_anchors   #5
-    nC = num_classes   #8
-    anchor_step = len(anchors)/num_anchors
-    conf_mask  = torch.ones(nB, nA, nH, nW) * noobject_scale
+def build_targets(pred_boxes, target, anchors, num_anchors, num_classes, nH, nW, noobject_scale, object_scale, sil_thresh, seen):
+    """
+    :param pred_boxes:  nB*nA*nH*nW, 6    x,y,w,l,im,re
+    :param target:      50, 7             p0, y, x, w, l, im, re
+    :param anchors:     10
+    :param num_anchors: 5
+    :param num_classes: 8
+    :param nH:          16
+    :param nW:          32
+    :param noobject_scale: 1
+    :param object_scale:   10
+    :param sil_thresh:     0.6
+    :param seen:           0
+    :return: nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, tl, tim, tre, tconf, tcls
+    """
+    nB = target.size(0)              # batch_size
+    nTrueBox = target.data.size(1)   # 50
+    nA = num_anchors                 # 5
+    nC = num_classes                 # 8
+    anchor_step = len(anchors)/num_anchors  # 2
+    conf_mask = torch.ones(nB, nA, nH, nW) * noobject_scale    # batch_size, 5, 16, 32
     coord_mask = torch.zeros(nB, nA, nH, nW)
-    cls_mask   = torch.zeros(nB, nA, nH, nW)
-    tx         = torch.zeros(nB, nA, nH, nW) 
-    ty         = torch.zeros(nB, nA, nH, nW) 
-    tw         = torch.zeros(nB, nA, nH, nW) 
-    tl         = torch.zeros(nB, nA, nH, nW)
-    tim        = torch.zeros(nB, nA, nH, nW)
-    tre        = torch.zeros(nB, nA, nH, nW)
-    tconf      = torch.zeros(nB, nA, nH, nW)
-    tcls       = torch.zeros(nB, nA, nH, nW) 
+    cls_mask = torch.zeros(nB, nA, nH, nW)
+    tx = torch.zeros(nB, nA, nH, nW)
+    ty = torch.zeros(nB, nA, nH, nW)
+    tw = torch.zeros(nB, nA, nH, nW)
+    tl = torch.zeros(nB, nA, nH, nW)
+    tim = torch.zeros(nB, nA, nH, nW)
+    tre = torch.zeros(nB, nA, nH, nW)
+    tconf = torch.zeros(nB, nA, nH, nW)
+    tcls = torch.zeros(nB, nA, nH, nW)
 
-    nAnchors = nA*nH*nW
-    nPixels  = nH*nW
+    nAnchors = nA*nH*nW   # 5*32*16   每个栅格有五个anchor
+    nPixels = nH*nW
     for b in range(nB):
-        cur_pred_boxes = pred_boxes[b*nAnchors:(b+1)*nAnchors].t()
-        cur_ious = torch.zeros(nAnchors)
-        for t in range(nTrueBox):
+        cur_pred_boxes = pred_boxes[b*nAnchors:(b+1)*nAnchors].t()    # 每一帧  nA*nH*nW, 6  所有栅格预测的5个anchor --> 6, 5*32*16
+        cur_ious = torch.zeros(nAnchors)  # 所有anchor的iou置为0  nAnchors
+        for t in range(nTrueBox):         # label p0, y, x, w, l, im, re   (50, 7)
             if target[b][t][1] == 0:
                 break
-            gx = target[b][t][1]*nW       #nW = 32
-            gy = target[b][t][2]*nH       #nH = 16
+            gx = target[b][t][1]*nW       # nW = 32  将x值归一化（0,1）然后再放缩到（0, 32）
+            gy = target[b][t][2]*nH       # nH = 16
             gw = target[b][t][3]*nW
             gl = target[b][t][4]*nH
-            gim= target[b][t][5]
-            gre= target[b][t][6]
-            cur_gt_boxes = torch.FloatTensor([gx,gy,gw,gl]).repeat(nAnchors,1).t()
-            cur_ious = torch.max(cur_ious, bbox_ious(cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))
-        conf_mask = conf_mask.view(nB, nAnchors)
-        conf_mask[b][cur_ious>sil_thresh] = 0
+            gim = target[b][t][5]
+            gre = target[b][t][6]
+            cur_gt_boxes = torch.FloatTensor([gx, gy, gw, gl]).repeat(nAnchors, 1).t()                # 4, nAnchors   每一帧所有预测值与一个真实值计算iou
+            cur_ious = torch.max(cur_ious, bbox_ious(cur_pred_boxes, cur_gt_boxes, x1y1x2y2=False))   # 计算iou  所有预测值与gt的iou  return nAnchors个iou的值
 
+        conf_mask = conf_mask.view(nB, nAnchors)  # 每个栅格有物体的mask
+        conf_mask[b][cur_ious > sil_thresh] = 0   # iou 大于阈值的设为0
 
     nGT = 0
     nCorrect = 0
-    for b in range(nB):
-        for t in range(nTrueBox):
+    for b in range(nB):  # batch
+        for t in range(nTrueBox):      # 50
             if target[b][t][1] == 0:
                 break
-            nGT = nGT + 1
+            nGT = nGT + 1              # gt box的个数
             best_iou = 0.0
             best_n = -1
             min_dist = 10000
-            gx = target[b][t][1]*nW
-            gy = target[b][t][2]*nH
+            gx = target[b][t][1]*nW    # y (0 -- 32)
+            gy = target[b][t][2]*nH    # x (0 -- 16)
             gi = int(gx)
             gj = int(gy)
-            gw = target[b][t][3]*nW
-            gl = target[b][t][4]*nH
-            gim= target[b][t][5]
-            gre= target[b][t][6]
+            gw = target[b][t][3]*nW    # w (0 -- 32)
+            gl = target[b][t][4]*nH    # l (0 -- 16)
+            gim = target[b][t][5]
+            gre = target[b][t][6]
             gt_box = [0, 0, gw, gl]
-            for n in range(nA):
+            for n in range(nA):   # 5
                 aw = anchors[int(anchor_step*n)]
                 ah = anchors[int(anchor_step*n+1)]
                 anchor_box = [0, 0, aw, ah]
-                iou  = bbox_iou(anchor_box, gt_box, x1y1x2y2=False)
+                iou = bbox_iou(anchor_box, gt_box, x1y1x2y2=False)   # 同一位置下的gt box 和anchor 的iou
                 if anchor_step == 4:
                     ax = anchors[anchor_step*n+2]
                     ay = anchors[anchor_step*n+3]
                     dist = pow(((gi+ax) - gx), 2) + pow(((gj+ay) - gy), 2)
+
                 if iou > best_iou:
                     best_iou = iou
-                    best_n = n
-                elif anchor_step==4 and iou == best_iou and dist < min_dist:
+                    best_n = n        # 哪个anchor更契合一点
+
+                elif anchor_step == 4 and iou == best_iou and dist < min_dist:
                     best_iou = iou
                     best_n = n
                     min_dist = dist
 
             gt_box = [gx, gy, gw, gl]
-            #pred_box = pred_boxes[b*nAnchors+best_n*nPixels+gj*nW+gi]
+            # pred_box = pred_boxes[b*nAnchors+best_n*nPixels+gj*nW+gi]
             index = b*nAnchors+best_n*nPixels+gj*nW+gi
-            pred_box =[pred_boxes[index][0] ,pred_boxes[index][1] ,pred_boxes[index][2] , pred_boxes[index][3]]
+            pred_box = [pred_boxes[index][0], pred_boxes[index][1], pred_boxes[index][2], pred_boxes[index][3]]   # 预测的合适的anchor的bbox
 
-            coord_mask[b][best_n][gj][gi] = 1
-            cls_mask[b][best_n][gj][gi] = 1
+            coord_mask[b][best_n][gj][gi] = 1            # batch_size, 5, 16, 32   将合适坐标的coor_mask值置为1
+            cls_mask[b][best_n][gj][gi] = 1              # 将合适坐标的cls_mask值置为1
             conf_mask = conf_mask.view(nB, nA, nH, nW)
-            conf_mask[b][best_n][gj][gi] = object_scale
+            conf_mask[b][best_n][gj][gi] = object_scale  # 将合适坐标的conf_mask值置为1  ?  看不懂
 
             tx[b][best_n][gj][gi] = target[b][t][1]*nW - gi
             ty[b][best_n][gj][gi] = target[b][t][2]*nH - gj
             tw[b][best_n][gj][gi] = np.log(gw/anchors[int(anchor_step*best_n)])
             tl[b][best_n][gj][gi] = np.log(gl/anchors[int(anchor_step*best_n+1)])
-            tim[b][best_n][gj][gi]= target[b][t][5]
-            tre[b][best_n][gj][gi]= target[b][t][6]
-            iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False) # best_iou
-            tconf[b][best_n][gj][gi] = iou
+            tim[b][best_n][gj][gi] = target[b][t][5]
+            tre[b][best_n][gj][gi] = target[b][t][6]
+
+            iou = bbox_iou(gt_box, pred_box, x1y1x2y2=False)  # best_iou
+            tconf[b][best_n][gj][gi] = iou                    # 每个栅格的anchor有一个置信度
             tcls[b][best_n][gj][gi] = target[b][t][0]
             if iou > 0.5:
                 nCorrect = nCorrect + 1
-
     conf_mask = conf_mask.view(nB, nA, nH, nW)
     return nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, tl, tim, tre, tconf, tcls
-
-
-
 
 class RegionLoss(nn.Module):
     def __init__(self, num_classes=8, num_anchors=5):
         super(RegionLoss, self).__init__()
+        anchors = [1.08, 1.19, 3.42, 4.41, 6.63, 11.38, 9.42, 5.11, 16.62, 10.52]
         self.num_classes = num_classes
         self.anchors = anchors
         self.num_anchors = num_anchors
@@ -124,11 +136,17 @@ class RegionLoss(nn.Module):
         self.object_scale = 10
         self.class_scale = 1
         self.thresh = 0.6
+        self.seen = 0
 
     def forward(self, output, target):
         #output : BxAs*(6+1+num_classes)*H*W
+        """
+        :param output: batch 5×15 16 32
+        :param target: 50, 7
+        :return:
+        """
         t0 = time.time()
-        nB = output.data.size(0)
+        nB = output.data.size(0)  # batch_size
         nA = self.num_anchors     # num_anchors = 5
         nC = self.num_classes     # num_classes = 8
         nH = output.data.size(2)  # nH  16
@@ -139,64 +157,70 @@ class RegionLoss(nn.Module):
         y = torch.sigmoid(output.index_select(2, Variable(torch.cuda.LongTensor([1]))).view(nB, nA, nH, nW))
         w = output.index_select(2, Variable(torch.cuda.LongTensor([2]))).view(nB, nA, nH, nW)
         l = output.index_select(2, Variable(torch.cuda.LongTensor([3]))).view(nB, nA, nH, nW)
-        im= output.index_select(2, Variable(torch.cuda.LongTensor([4]))).view(nB, nA, nH, nW)
-        re= output.index_select(2, Variable(torch.cuda.LongTensor([5]))).view(nB, nA, nH, nW)
+        im = output.index_select(2, Variable(torch.cuda.LongTensor([4]))).view(nB, nA, nH, nW)
+        re = output.index_select(2, Variable(torch.cuda.LongTensor([5]))).view(nB, nA, nH, nW)
         conf = torch.sigmoid(output.index_select(2, Variable(torch.cuda.LongTensor([6]))).view(nB, nA, nH, nW))
-        cls = output.index_select(2, Variable(torch.linspace(7,7+nC-1,nC).long().cuda()))
-        cls = cls.view(nB*nA, nC, nH*nW).transpose(1,2).contiguous().view(nB*nA*nH*nW, nC)
+        cls = output.index_select(2, Variable(torch.linspace(7, 7+nC-1, nC).long().cuda()))
+        cls = cls.view(nB*nA, nC, nH*nW).transpose(1, 2).contiguous().view(nB*nA*nH*nW, nC)
         t1 = time.time()
 
         pred_boxes = torch.cuda.FloatTensor(6, nB*nA*nH*nW)
-        grid_x = torch.linspace(0, nW-1, nW).repeat(nH,1).repeat(nB*nA, 1, 1).view(nB*nA*nH*nW).cuda()
-        grid_y = torch.linspace(0, nH-1, nH).repeat(nW,1).t().repeat(nB*nA, 1, 1).view(nB*nA*nH*nW).cuda()
+        grid_x = torch.linspace(0, nW-1, nW).repeat(nH, 1).repeat(nB*nA, 1, 1).view(nB*nA*nH*nW).cuda()
+        grid_y = torch.linspace(0, nH-1, nH).repeat(nW, 1).t().repeat(nB*nA, 1, 1).view(nB*nA*nH*nW).cuda()
         anchor_w = torch.Tensor(anchors).view(nA, self.anchor_step).index_select(1, torch.LongTensor([0])).cuda()
         anchor_l = torch.Tensor(anchors).view(nA, self.anchor_step).index_select(1, torch.LongTensor([1])).cuda()
         anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
         anchor_l = anchor_l.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
 
-        pred_boxes[0] = x.data.view(nB*nA*nH*nW).cuda() + grid_x
-        pred_boxes[1] = y.data.view(nB*nA*nH*nW).cuda() + grid_y
-        pred_boxes[2] = torch.exp(w.data).view(nB*nA*nH*nW).cuda() * anchor_w
-        pred_boxes[3] = torch.exp(l.data).view(nB*nA*nH*nW).cuda() * anchor_l
-        #pred_boxes[4] = np.arctan2(im,re).data.view(nB*nA*nH*nW).cuda()
-        pred_boxes[4] = im.data.view(nB*nA*nH*nW).cuda()
-        pred_boxes[5] = re.data.view(nB*nA*nH*nW).cuda()
-        pred_boxes = convert2cpu(pred_boxes.transpose(0,1).contiguous().view(-1,6))
+        pred_boxes[0] = x.data.view(nB*nA*nH*nW).cuda() + grid_x                # cx+x
+        pred_boxes[1] = y.data.view(nB*nA*nH*nW).cuda() + grid_y                # cy+y
+        pred_boxes[2] = torch.exp(w.data).view(nB*nA*nH*nW).cuda() * anchor_w   # Pw*e^w
+        pred_boxes[3] = torch.exp(l.data).view(nB*nA*nH*nW).cuda() * anchor_l   # Pl*e^l
+        # pred_boxes[4] = np.arctan2(im,re).data.view(nB*nA*nH*nW).cuda()
+        pred_boxes[4] = im.data.view(nB*nA*nH*nW).cuda()                        # im
+        pred_boxes[5] = re.data.view(nB*nA*nH*nW).cuda()                        # re
+        pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, 6))   # nB*nA*nH*nW, 6
         t2 = time.time()
+        nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, tl, tim, tre, tconf, tcls = build_targets(pred_boxes, target.data,
+                                                                                                              self.anchors,
+                                                                                                              nA, nC,
+                                                                                                              nH, nW,
+                                                                                                              self.noobject_scale,
+                                                                                                              self.object_scale,
+                                                                                                              self.thresh, self.seen)
 
-        nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, tl, tim, tre, tconf,tcls = build_targets(pred_boxes, target.data, self.anchors, nA, nC, \
-                                                               nH, nW, self.noobject_scale, self.object_scale, self.thresh)
         cls_mask = (cls_mask == 1)
-        nProposals = int(torch.sum(torch.gt(conf,0.25)))
+        nProposals = int(torch.sum(torch.gt(conf, 0.25)))    # conf > 0.25 的选做提案  网络输出   iou>0.25 设为提案
 
-
-        tx    = Variable(tx.cuda())
-        ty    = Variable(ty.cuda())
-        tw    = Variable(tw.cuda())
-        tl    = Variable(tl.cuda())
-        tim   = Variable(tim.cuda())
-        tre   = Variable(tre.cuda())
+        tx = Variable(tx.cuda())
+        ty = Variable(ty.cuda())
+        tw = Variable(tw.cuda())
+        tl = Variable(tl.cuda())
+        tim = Variable(tim.cuda())
+        tre = Variable(tre.cuda())
         tconf = Variable(tconf.cuda())
         cls_mask = cls_mask.view(nB*nA*nH*nW)
-        tcls  = Variable(tcls.view(-1)[cls_mask].long().cuda())
+        tcls = Variable(tcls.view(-1)[cls_mask].long().cuda())
 
         coord_mask = Variable(coord_mask.cuda())
-        conf_mask  = Variable(conf_mask.cuda())
-        cls_mask   = Variable(cls_mask.view(-1, 1).repeat(1,nC).cuda())
-        cls        = cls[cls_mask].view(-1, nC)
+        conf_mask = Variable(conf_mask.cuda())
+        cls_mask = Variable(cls_mask.view(-1, 1).repeat(1, nC).cuda())
+        cls = cls[cls_mask].view(-1, nC)
         t3 = time.time()
 
-        loss_x = self.coord_scale * nn.MSELoss(reduction='sum')(x*coord_mask, tx*coord_mask)
-        loss_y = self.coord_scale * nn.MSELoss(reduction='sum')(y*coord_mask, ty*coord_mask)
-        loss_w = self.coord_scale * nn.MSELoss(reduction='sum')(w*coord_mask, tw*coord_mask)
-        loss_l = self.coord_scale * nn.MSELoss(reduction='sum')(l*coord_mask, tl*coord_mask)
-        loss_im= self.coord_scale * nn.MSELoss(reduction='sum')(im*coord_mask, tim*coord_mask)
-        loss_re= self.coord_scale * nn.MSELoss(reduction='sum')(re*coord_mask, tre*coord_mask)
+        loss_x = self.coord_scale * nn.MSELoss(reduction='sum')(x*coord_mask, tx*coord_mask)/2.0
+        loss_y = self.coord_scale * nn.MSELoss(reduction='sum')(y*coord_mask, ty*coord_mask)/2.0
+        loss_w = self.coord_scale * nn.MSELoss(reduction='sum')(w*coord_mask, tw*coord_mask)/2.0
+        loss_l = self.coord_scale * nn.MSELoss(reduction='sum')(l*coord_mask, tl*coord_mask)/2.0
+        loss_im = self.coord_scale * nn.MSELoss(reduction='sum')(im*coord_mask, tim*coord_mask)/2.0
+        loss_re = self.coord_scale * nn.MSELoss(reduction='sum')(re*coord_mask, tre*coord_mask)/2.0
         loss_Euler = loss_im + loss_re
-        loss_conf = nn.MSELoss(reduction='sum')(conf*conf_mask, tconf*conf_mask)
+        loss_conf = nn.MSELoss(reduction='sum')(conf*conf_mask, tconf*conf_mask)    # 只有这个有争议   判断有没有物体
+
         loss_cls = self.class_scale * nn.CrossEntropyLoss(reduction='sum')(cls, tcls)
         loss = loss_x + loss_y + loss_w + loss_l + loss_conf + loss_cls + loss_Euler
         t4 = time.time()
+
         if False:
             print('-----------------------------------')
             print('        activation : %f' % (t1 - t0))
@@ -205,4 +229,15 @@ class RegionLoss(nn.Module):
             print('       create loss : %f' % (t4 - t3))
             print('             total : %f' % (t4 - t0))
         print('nGT %d, recall %d, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, Euler %f, total %f' % (nGT, nCorrect, nProposals, loss_x.data, loss_y.data, loss_w.data, loss_l.data, loss_conf.data, loss_cls.data,loss_Euler.data ,loss.data))
-        return loss
+        return loss, loss_x, loss_y, loss_w, loss_l, loss_im, loss_re, loss_Euler, loss_conf, loss_cls
+
+
+if __name__ == '__main__':
+    pc = np.random.randn(12, 3, 512, 1024)
+    pc = torch.from_numpy(pc)
+    model = ComplexYOLO()
+    output = model(pc)
+    # target = torch.FloatTensor(50, 7)
+    # region_loss = RegionLoss(num_classes=8, num_anchors=5)
+    # loss, loss_x, loss_y, loss_w, loss_l, loss_im, loss_re, loss_Euler, loss_conf, loss_cls = region_loss(output, target)
+
